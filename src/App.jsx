@@ -1,6 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react'
 import CanvasView from './viz/CanvasView'
 import ControlsPanel from './components/ControlsPanel'
+import PerformanceMonitor from './components/PerformanceMonitor'
+import PresetManager from './components/PresetManager'
+import OnboardingTooltip from './components/OnboardingTooltip'
+import SettingsMenu from './components/SettingsMenu'
 import { loadFile, enableMic, stopMic } from './audio/audioGraph'
 import { useUIStore } from './state/useUIStore'
 
@@ -11,9 +15,14 @@ export default function App() {
   const [progress, setProgress] = useState(0)
   const [currentFile, setCurrentFile] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [performance, setPerformance] = useState({ fps: 60, droppedFrames: 0 })
+  const [showPresets, setShowPresets] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const set = useUIStore(s => s.set)
   const mode = useUIStore(s => s.mode)
   const showControls = useUIStore(s => s.showControls)
+  const showPerformance = useUIStore(s => s.showPerformance)
+  const hasSeenOnboarding = useUIStore(s => s.hasSeenOnboarding)
 
   // File format validation
   const validFormats = ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/m4a', 'audio/ogg', 'audio/mp3']
@@ -49,6 +58,14 @@ export default function App() {
     }
   }
 
+  const handleLoadFile = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'audio/*'
+    input.onchange = onFile
+    input.click()
+  }
+
   const onMic = async () => {
     if (micOn) {
       stopMic()
@@ -71,6 +88,10 @@ export default function App() {
     }
   }
 
+  const handleEnableMic = () => {
+    onMic()
+  }
+
   const togglePlayPause = () => {
     const audio = audioRef.current
     if (!audio || !audio.src) return
@@ -82,6 +103,10 @@ export default function App() {
         alert('Audio playback failed. Try clicking play again.')
       })
     }
+  }
+
+  const handlePerformanceUpdate = (perf) => {
+    setPerformance(perf)
   }
 
   // Audio event listeners
@@ -175,17 +200,15 @@ export default function App() {
               {playing ? '⏸️' : '▶️'}
             </button>
             
-            {/* File input */}
-            <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-xl ring-1 ring-white/10 hover:bg-white/5 transition-all disabled:opacity-50">
-              <span>{loading ? 'Loading...' : 'Load File'}</span>
-              <input 
-                type="file" 
-                accept="audio/*" 
-                className="hidden" 
-                onChange={onFile}
-                disabled={loading || micOn}
-              />
-            </label>
+                    {/* File input */}
+                    <button
+                      data-tooltip-target="load-file-btn"
+                      onClick={handleLoadFile}
+                      disabled={loading || micOn}
+                      className="px-3 py-2 rounded-xl ring-1 ring-white/10 hover:bg-white/5 transition-all disabled:opacity-50"
+                    >
+                      {loading ? 'Loading...' : 'Load File'}
+                    </button>
             
             {/* Mic button */}
             <button 
@@ -200,29 +223,47 @@ export default function App() {
               {micOn ? '🎤 Mic On' : '🎤 Mic'}
             </button>
             
-            {/* Mode selector */}
-            <select
-              value={mode}
-              onChange={e => set({ mode: e.target.value })}
-              className="px-3 py-2 rounded-xl bg-zinc-900 ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="bars">Bars</option>
-              <option value="wave">Wave (later)</option>
-              <option value="radial">Radial (later)</option>
-              <option value="3d">3D (Babylon later)</option>
-            </select>
+                    {/* Mode selector */}
+                    <select
+                      data-tooltip-target="mode-selector"
+                      value={mode}
+                      onChange={e => set({ mode: e.target.value })}
+                      className="px-3 py-2 rounded-xl bg-zinc-900 ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="bars">Bars</option>
+                      <option value="wave">Waveform</option>
+                      <option value="radial">Radial Particles</option>
+                    </select>
             
-            {/* Controls toggle */}
-            <button
-              onClick={() => set({ showControls: !showControls })}
-              className={`px-3 py-2 rounded-xl ring-1 transition-all ${
-                showControls 
-                  ? 'ring-purple-400/40 bg-purple-400/10' 
-                  : 'ring-white/10 hover:bg-white/5'
-              }`}
-            >
-              ⚙️
-            </button>
+                    {/* Preset button */}
+                    <button
+                      data-tooltip-target="preset-btn"
+                      onClick={() => setShowPresets(true)}
+                      className="px-3 py-2 rounded-xl ring-1 ring-white/10 hover:bg-white/5 transition-all"
+                    >
+                      📁 Presets
+                    </button>
+                    
+                    {/* Controls toggle */}
+                    <button
+                      data-tooltip-target="controls-btn"
+                      onClick={() => set({ showControls: !showControls })}
+                      className={`px-3 py-2 rounded-xl ring-1 transition-all ${
+                        showControls 
+                          ? 'ring-purple-400/40 bg-purple-400/10' 
+                          : 'ring-white/10 hover:bg-white/5'
+                      }`}
+                    >
+                      ⚙️
+                    </button>
+                    
+                    {/* Settings menu */}
+                    <button
+                      onClick={() => setShowSettings(true)}
+                      className="px-3 py-2 rounded-xl ring-1 ring-white/10 hover:bg-white/5 transition-all"
+                    >
+                      ⋯
+                    </button>
           </div>
         </header>
 
@@ -236,7 +277,11 @@ export default function App() {
           </div>
         )}
 
-        <CanvasView />
+                <CanvasView 
+                  onPerformanceUpdate={handlePerformanceUpdate}
+                  onLoadFile={handleLoadFile}
+                  onEnableMic={handleEnableMic}
+                />
 
         {/* Controls Panel */}
         {showControls && (
@@ -245,13 +290,35 @@ export default function App() {
           </div>
         )}
 
-        {/* Keyboard shortcuts help */}
-        <div className="text-xs text-zinc-500 text-center">
-          Shortcuts: Space = Play/Pause, M = Mic, C = Controls, 1/2/3 = Modes
-        </div>
+        {/* Performance Monitor */}
+        <PerformanceMonitor 
+          fps={performance.fps}
+          droppedFrames={performance.droppedFrames}
+          visible={showPerformance}
+        />
 
-        <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />
-      </div>
-    </div>
-  )
-}
+                {/* Keyboard shortcuts help */}
+                <div className="text-xs text-zinc-500 text-center">
+                  Shortcuts: Space = Play/Pause, M = Mic, C = Controls, 1/2/3 = Modes
+                </div>
+
+                <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />
+              </div>
+            </div>
+            
+            {/* Modals */}
+            <PresetManager 
+              visible={showPresets} 
+              onClose={() => setShowPresets(false)} 
+            />
+            
+            <SettingsMenu 
+              visible={showSettings} 
+              onClose={() => setShowSettings(false)} 
+            />
+            
+            {/* Onboarding */}
+            <OnboardingTooltip />
+          </div>
+        )
+      }
